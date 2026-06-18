@@ -4,6 +4,8 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Install dependencies first (cache-friendly)
+# Add python/make/g++ for node-gyp to build better-sqlite3 native addon
+RUN apk add --no-cache python3 make g++
 COPY package.json package-lock.json ./
 RUN npm ci
 

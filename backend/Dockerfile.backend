@@ -4,6 +4,8 @@ FROM node:20-alpine AS deps
 WORKDIR /app
 
 # Copy backend package.json
+# Add python/make/g++ for node-gyp to build native addons if any
+RUN apk add --no-cache python3 make g++
 COPY package.json ./
 RUN npm install --omit=dev
 
