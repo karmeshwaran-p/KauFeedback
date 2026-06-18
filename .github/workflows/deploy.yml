@@ -17,24 +17,24 @@ env:
   BACKEND_IMAGE: kau-backend
 
 jobs:
-  build-scan-deploy:
-    name: Build, Scan, & Deploy
+  # ════════════════════════════════════════════════════════════════════════════
+  # Stage 1: Security & Code Quality Scan
+  # ════════════════════════════════════════════════════════════════════════════
+  security-scan:
+    name: 🛡️ Security & Code Scan
     runs-on: ubuntu-latest
 
     steps:
-      # ── 1. Checkout code ──────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Needed for Gitleaks and SonarQube
+          fetch-depth: 0
 
-      # ── 2. Run Gitleaks Security Scan ─────────────────────────────────────
       - name: Gitleaks Secret Scanner
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── 3. Run SonarQube Code Quality Scan ────────────────────────────────
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@master
         with:
@@ -45,14 +45,24 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
-      # ── 4. Login to Docker Hub ────────────────────────────────────────────
+  # ════════════════════════════════════════════════════════════════════════════
+  # Stage 2: Build Docker Images, Scan with Trivy, Push to Registry
+  # ════════════════════════════════════════════════════════════════════════════
+  build-and-push:
+    name: 🐳 Build, Scan & Push
+    runs-on: ubuntu-latest
+    needs: security-scan
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # ── 5. Build Docker Images ────────────────────────────────────────────
       - name: Build Frontend Image
         run: |
           docker build \
@@ -67,7 +77,6 @@ jobs:
             -t ${{ env.DOCKER_USERNAME }}/${{ env.BACKEND_IMAGE }}:latest \
             -f backend/Dockerfile.backend backend/
 
-      # ── 6. Container Scanning (Trivy) ─────────────────────────────────────
       - name: Run Trivy vulnerability scanner on Frontend
         uses: aquasecurity/trivy-action@master
         with:
@@ -88,7 +97,6 @@ jobs:
           vuln-type: 'os,library'
           severity: 'CRITICAL'
 
-      # ── 7. Push Images to Registry ────────────────────────────────────────
       - name: Push Images to Docker Hub
         run: |
           docker push ${{ env.DOCKER_USERNAME }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }}
@@ -96,7 +104,18 @@ jobs:
           docker push ${{ env.DOCKER_USERNAME }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }}
           docker push ${{ env.DOCKER_USERNAME }}/${{ env.BACKEND_IMAGE }}:latest
 
-      # ── 8. Copy deployment files to EC2 ───────────────────────────────────
+  # ════════════════════════════════════════════════════════════════════════════
+  # Stage 3: Deploy to EC2
+  # ════════════════════════════════════════════════════════════════════════════
+  deploy:
+    name: 🚀 Deploy to EC2
+    runs-on: ubuntu-latest
+    needs: build-and-push
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Copy deployment config to EC2
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -107,7 +126,6 @@ jobs:
           target: ${{ env.DEPLOY_DIR }}
           strip_components: 1
 
-      # ── 9. SSH into EC2 and deploy ────────────────────────────────────────
       - name: Deploy with Docker Compose
         uses: appleboy/ssh-action@v1.0.3
         with:
