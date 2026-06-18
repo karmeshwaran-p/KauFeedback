@@ -8,7 +8,13 @@
  *   api.from(table).insert(data)
  */
 
-const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
+// On the server side (SSR/Node.js), fetch() requires absolute URLs.
+// VITE_API_INTERNAL_URL is used for container-to-container communication (e.g., http://backend:4000).
+// On the browser, we use relative URLs ('') so Nginx proxies /api/* to the backend.
+const IS_SERVER = typeof window === 'undefined';
+const BASE = IS_SERVER
+  ? (import.meta.env.VITE_API_INTERNAL_URL ?? 'http://backend:4000')
+  : (import.meta.env.VITE_API_URL ?? '');
 
 // ─── Token storage ────────────────────────────────────────────────────────────
 

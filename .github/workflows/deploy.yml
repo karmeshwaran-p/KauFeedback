@@ -75,6 +75,8 @@ jobs:
           tags: |
             ${{ env.DOCKER_USERNAME }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }}
             ${{ env.DOCKER_USERNAME }}/${{ env.FRONTEND_IMAGE }}:latest
+          build-args: |
+            VITE_API_INTERNAL_URL=http://backend:4000
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 
