@@ -20,14 +20,14 @@ FROM node:20-alpine AS runner
 
 WORKDIR /app
 
-ENV NODE_ENV=production
+# Install lightweight static file server
+RUN npm install -g serve
 
-# Copy built output + node_modules needed at runtime
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./
+# Copy only the client-side build output (static HTML/JS/CSS)
+COPY --from=builder /app/dist/client ./dist
 
-# The TanStack Start SSR server listens on port 3000
+# Serve on port 3000
 EXPOSE 3000
 
-CMD ["node", "dist/server/server.js"]
+# -s flag enables single-page-app mode (rewrites all routes to index.html)
+CMD ["serve", "-s", "dist", "-l", "3000"]
