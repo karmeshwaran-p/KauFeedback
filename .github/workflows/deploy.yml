@@ -31,6 +31,14 @@ jobs:
       # ── 1. Checkout code ──────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Needed for Gitleaks
+
+      # ── 1.5 Run Gitleaks Security Scan ────────────────────────────────────
+      - name: Gitleaks Secret Scanner
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # ── 2. Copy files to EC2 ──────────────────────────────────────────────
       - name: Copy project to EC2
