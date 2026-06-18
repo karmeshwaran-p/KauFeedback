@@ -9,6 +9,6 @@ export default defineConfig({
     allowedHosts: true,
   },
   plugins: [tsconfigPaths(), tailwindcss(), tanstackStart({
-    server: { entry: "server" },
+    
   }), react()],
 });
