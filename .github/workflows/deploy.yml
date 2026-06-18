@@ -1,0 +1,110 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# GitHub Actions: Build & Deploy KauFeedback to AWS EC2
+# ──────────────────────────────────────────────────────────────────────────────
+# Prerequisites (set these in GitHub repo → Settings → Secrets and variables → Actions):
+#
+#   EC2_HOST          – Public IP or hostname of your EC2 instance
+#   EC2_USER          – SSH user (e.g. ubuntu, ec2-user)
+#   EC2_SSH_KEY       – Private SSH key (PEM) for the EC2 instance
+#   MYSQL_ROOT_PASSWORD – MySQL root password for production
+#   JWT_SECRET        – JWT signing secret for production
+#   ADMIN_EMAIL       – Admin email
+#   ADMIN_PASSWORD    – Admin password
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: Deploy to AWS EC2
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  DEPLOY_DIR: /home/${{ secrets.EC2_USER }}/kau-feedback
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout code ──────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Copy files to EC2 ──────────────────────────────────────────────
+      - name: Copy project to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "."
+          target: ${{ env.DEPLOY_DIR }}
+          overwrite: true
+
+      # ── 3. SSH into EC2 and deploy ────────────────────────────────────────
+      - name: Deploy with Docker Compose
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd ${{ env.DEPLOY_DIR }}
+
+            # Create production .env file
+            cat > deployment/.env << 'ENVEOF'
+            MYSQL_HOST=${{ secrets.MYSQL_HOST }}
+            MYSQL_PORT=${{ secrets.MYSQL_PORT }}
+            MYSQL_USER=${{ secrets.MYSQL_USER }}
+            MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }}
+            MYSQL_PASSWORD=${{ secrets.MYSQL_PASSWORD }}
+            MYSQL_DATABASE=${{ secrets.MYSQL_DATABASE }}
+
+            ADMIN_EMAIL=${{ secrets.ADMIN_EMAIL }}
+            ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}
+
+            API_PORT=${{ secrets.API_PORT }}
+            JWT_SECRET=${{ secrets.JWT_SECRET }}
+
+            VITE_API_URL=${{ secrets.VITE_API_URL }}
+            ENVEOF
+
+            # Install Docker if not present
+            if ! command -v docker &> /dev/null; then
+              echo "Installing Docker..."
+              curl -fsSL https://get.docker.com | sh
+              sudo usermod -aG docker $USER
+              sudo systemctl enable docker
+              sudo systemctl start docker
+            fi
+
+            # Install Docker Compose plugin if not present
+            if ! docker compose version &> /dev/null; then
+              echo "Installing Docker Compose plugin..."
+              sudo apt-get update && sudo apt-get install -y docker-compose-plugin
+            fi
+
+            # Build and deploy
+            echo "Building and starting containers..."
+            cd deployment
+            docker compose down --remove-orphans || true
+            docker compose build --no-cache
+            docker compose up -d
+            cd ..
+
+            # Wait for services to be healthy
+            echo "Waiting for services to start..."
+            sleep 15
+
+            # Verify deployment
+            echo "Checking service health..."
+            docker compose ps
+            curl -sf http://localhost/api/health && echo "✅ Backend is healthy!" || echo "⚠️ Backend health check failed"
+            curl -sf http://localhost/ > /dev/null && echo "✅ Frontend is accessible!" || echo "⚠️ Frontend check failed"
+
+            echo ""
+            echo "🚀 Deployment complete!"
+            echo "   App: http://${{ secrets.EC2_HOST }}"
+            echo "   API: http://${{ secrets.EC2_HOST }}/api/health"
