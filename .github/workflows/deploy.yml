@@ -1,15 +1,5 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# GitHub Actions: Build & Deploy KauFeedback to AWS EC2
-# ──────────────────────────────────────────────────────────────────────────────
-# Prerequisites (set these in GitHub repo → Settings → Secrets and variables → Actions):
-#
-#   EC2_HOST          – Public IP or hostname of your EC2 instance
-#   EC2_USER          – SSH user (e.g. ubuntu, ec2-user)
-#   EC2_SSH_KEY       – Private SSH key (PEM) for the EC2 instance
-#   MYSQL_ROOT_PASSWORD – MySQL root password for production
-#   JWT_SECRET        – JWT signing secret for production
-#   ADMIN_EMAIL       – Admin email
-#   ADMIN_PASSWORD    – Admin password
+# GitHub Actions: Build, Scan & Deploy KauFeedback to AWS EC2
 # ──────────────────────────────────────────────────────────────────────────────
 
 name: Deploy to AWS EC2
@@ -21,10 +11,14 @@ on:
 
 env:
   DEPLOY_DIR: /home/${{ secrets.EC2_USER }}/kau-feedback
+  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+  IMAGE_TAG: ${{ github.run_number }}
+  FRONTEND_IMAGE: kau-frontend
+  BACKEND_IMAGE: kau-backend
 
 jobs:
-  deploy:
-    name: Build & Deploy
+  build-scan-deploy:
+    name: Build, Scan, & Deploy
     runs-on: ubuntu-latest
 
     steps:
@@ -32,33 +26,84 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Needed for Gitleaks
+          fetch-depth: 0 # Needed for Gitleaks and SonarQube
 
-      # ── 1.5 Run Gitleaks Security Scan ────────────────────────────────────
+      # ── 2. Run Gitleaks Security Scan ─────────────────────────────────────
       - name: Gitleaks Secret Scanner
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── 1.6 Run SonarQube Code Quality Scan ───────────────────────────────
+      # ── 3. Run SonarQube Code Quality Scan ────────────────────────────────
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@master
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
-      # ── 2. Copy files to EC2 ──────────────────────────────────────────────
-      - name: Copy project to EC2
+      # ── 4. Login to Docker Hub ────────────────────────────────────────────
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # ── 5. Build Docker Images ────────────────────────────────────────────
+      - name: Build Frontend Image
+        run: |
+          docker build \
+            -t ${{ env.DOCKER_USERNAME }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }} \
+            -t ${{ env.DOCKER_USERNAME }}/${{ env.FRONTEND_IMAGE }}:latest \
+            -f frontend/Dockerfile.frontend frontend/
+
+      - name: Build Backend Image
+        run: |
+          docker build \
+            -t ${{ env.DOCKER_USERNAME }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }} \
+            -t ${{ env.DOCKER_USERNAME }}/${{ env.BACKEND_IMAGE }}:latest \
+            -f backend/Dockerfile.backend backend/
+
+      # ── 6. Container Scanning (Trivy) ─────────────────────────────────────
+      - name: Run Trivy vulnerability scanner on Frontend
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ env.DOCKER_USERNAME }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }}'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL'
+
+      - name: Run Trivy vulnerability scanner on Backend
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ env.DOCKER_USERNAME }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }}'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL'
+
+      # ── 7. Push Images to Registry ────────────────────────────────────────
+      - name: Push Images to Docker Hub
+        run: |
+          docker push ${{ env.DOCKER_USERNAME }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }}
+          docker push ${{ env.DOCKER_USERNAME }}/${{ env.FRONTEND_IMAGE }}:latest
+          docker push ${{ env.DOCKER_USERNAME }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }}
+          docker push ${{ env.DOCKER_USERNAME }}/${{ env.BACKEND_IMAGE }}:latest
+
+      # ── 8. Copy deployment files to EC2 ───────────────────────────────────
+      - name: Copy deployment config to EC2
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: "."
+          source: "deployment/"
           target: ${{ env.DEPLOY_DIR }}
-          overwrite: true
+          strip_components: 1
 
-      # ── 3. SSH into EC2 and deploy ────────────────────────────────────────
+      # ── 9. SSH into EC2 and deploy ────────────────────────────────────────
       - name: Deploy with Docker Compose
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -69,7 +114,7 @@ jobs:
             cd ${{ env.DEPLOY_DIR }}
 
             # Create production .env file
-            cat > deployment/.env << 'ENVEOF'
+            cat > .env << 'ENVEOF'
             MYSQL_HOST=${{ secrets.MYSQL_HOST }}
             MYSQL_PORT=${{ secrets.MYSQL_PORT }}
             MYSQL_USER=${{ secrets.MYSQL_USER }}
@@ -84,42 +129,25 @@ jobs:
             JWT_SECRET=${{ secrets.JWT_SECRET }}
 
             VITE_API_URL=${{ secrets.VITE_API_URL }}
+
+            DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}
+            IMAGE_TAG=${{ env.IMAGE_TAG }}
             ENVEOF
 
-            # Install Docker if not present
-            if ! command -v docker &> /dev/null; then
-              echo "Installing Docker..."
-              curl -fsSL https://get.docker.com | sh
-              sudo usermod -aG docker $USER
-              sudo systemctl enable docker
-              sudo systemctl start docker
-            fi
+            # Log into Docker Hub to pull images
+            echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
-            # Install Docker Compose plugin if not present
-            if ! docker compose version &> /dev/null; then
-              echo "Installing Docker Compose plugin..."
-              sudo apt-get update && sudo apt-get install -y docker-compose-plugin
-            fi
+            # Pull and deploy
+            echo "Pulling latest images and starting containers..."
+            docker compose pull
+            docker compose up -d --remove-orphans
 
-            # Build and deploy
-            echo "Building and starting containers..."
-            cd deployment
-            docker compose down --remove-orphans || true
-            docker compose build --no-cache
-            docker compose up -d
-            cd ..
-
-            # Wait for services to be healthy
-            echo "Waiting for services to start..."
-            sleep 15
+            # Clean up old unused images
+            docker image prune -af
 
             # Verify deployment
-            echo "Checking service health..."
+            sleep 15
             docker compose ps
-            curl -sf http://localhost/api/health && echo "✅ Backend is healthy!" || echo "⚠️ Backend health check failed"
-            curl -sf http://localhost/ > /dev/null && echo "✅ Frontend is accessible!" || echo "⚠️ Frontend check failed"
+            curl -sf http://localhost/api/health && echo "✅ Backend is healthy!" || echo "⚠️ Backend check failed"
 
-            echo ""
             echo "🚀 Deployment complete!"
-            echo "   App: http://${{ secrets.EC2_HOST }}"
-            echo "   API: http://${{ secrets.EC2_HOST }}/api/health"

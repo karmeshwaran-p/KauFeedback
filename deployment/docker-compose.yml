@@ -22,6 +22,7 @@ services:
 
   # ─── Backend (Express API) ───────────────────────────────────────────────────
   backend:
+    image: ${DOCKER_USERNAME:-kauvery}/kau-backend:${IMAGE_TAG:-latest}
     build:
       context: ../backend
       dockerfile: Dockerfile.backend
@@ -47,6 +48,7 @@ services:
 
   # ─── Frontend (TanStack Start SSR) ──────────────────────────────────────────
   frontend:
+    image: ${DOCKER_USERNAME:-kauvery}/kau-frontend:${IMAGE_TAG:-latest}
     build:
       context: ../frontend
       dockerfile: Dockerfile.frontend
