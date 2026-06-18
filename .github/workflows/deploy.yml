@@ -137,21 +137,35 @@ jobs:
             DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}
             IMAGE_TAG=${{ env.IMAGE_TAG }}
             ENVEOF
+            # Install Docker if not present
+            if ! command -v docker &> /dev/null; then
+              echo "Installing Docker..."
+              curl -fsSL https://get.docker.com | sh
+              sudo usermod -aG docker $USER
+              sudo systemctl enable docker
+              sudo systemctl start docker
+            fi
+
+            # Install Docker Compose plugin if not present
+            if ! docker compose version &> /dev/null; then
+              echo "Installing Docker Compose plugin..."
+              sudo apt-get update && sudo apt-get install -y docker-compose-plugin
+            fi
 
             # Log into Docker Hub to pull images
-            echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+            echo "${{ secrets.DOCKER_PASSWORD }}" | sudo docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
             # Pull and deploy
             echo "Pulling latest images and starting containers..."
-            docker compose pull
-            docker compose up -d --remove-orphans
+            sudo docker compose pull
+            sudo docker compose up -d --remove-orphans
 
             # Clean up old unused images
-            docker image prune -af
+            sudo docker image prune -af
 
             # Verify deployment
             sleep 15
-            docker compose ps
+            sudo docker compose ps
             curl -sf http://localhost/api/health && echo "✅ Backend is healthy!" || echo "⚠️ Backend check failed"
 
             echo "🚀 Deployment complete!"
