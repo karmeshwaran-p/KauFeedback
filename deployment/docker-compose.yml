@@ -23,9 +23,6 @@ services:
   # ─── Backend (Express API) ───────────────────────────────────────────────────
   backend:
     image: ${DOCKER_USERNAME:-kauvery}/kau-backend:${IMAGE_TAG:-latest}
-    build:
-      context: ../backend
-      dockerfile: Dockerfile.backend
     container_name: kau-backend
     restart: unless-stopped
     depends_on:
@@ -49,11 +46,6 @@ services:
   # ─── Frontend (TanStack Start SSR) ──────────────────────────────────────────
   frontend:
     image: ${DOCKER_USERNAME:-kauvery}/kau-frontend:${IMAGE_TAG:-latest}
-    build:
-      context: ../frontend
-      dockerfile: Dockerfile.frontend
-      args:
-        VITE_API_URL: ${VITE_API_URL}
     container_name: kau-frontend
     restart: unless-stopped
     depends_on:

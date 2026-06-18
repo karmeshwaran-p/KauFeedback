@@ -115,6 +115,8 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            set -e  # Exit immediately if any command fails
+
             cd ${{ env.DEPLOY_DIR }}
 
             # Create production .env file
