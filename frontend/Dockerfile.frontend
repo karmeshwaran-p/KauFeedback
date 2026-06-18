@@ -4,65 +4,13 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Install dependencies first (cache-friendly)
-# Add python/make/g++ for node-gyp to build better-sqlite3 native addon
 RUN apk add --no-cache python3 make g++
 COPY package.json package-lock.json ./
 RUN npm ci
 
 # Copy source and build
 COPY . .
-
-# Build the frontend (TanStack Start)
 RUN npm run build
-
-# Create a minimal Node.js adapter for the Cloudflare fetch handler
-RUN cat << 'EOF' > start.js
-import express from "express";
-import app from "./dist/server/server.js";
-
-const server = express();
-
-// 1. Serve static files from the client build
-server.use(express.static("dist/client", { index: false }));
-
-// 2. Pass everything else to the TanStack Start SSR fetch handler
-server.use(async (req, res) => {
-  try {
-    const url = new URL(req.url, \`http://\${req.headers.host || "localhost"}\`);
-    
-    // Convert Node Headers to Web Headers
-    const headers = new Headers();
-    for (const [key, value] of Object.entries(req.headers)) {
-      if (Array.isArray(value)) value.forEach(v => headers.append(key, v));
-      else if (value) headers.set(key, value);
-    }
-    
-    // Read Body for POST/PUT
-    let body = undefined;
-    if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method) && req.headers["content-length"] !== "0") {
-      const chunks = [];
-      for await (const chunk of req) chunks.push(chunk);
-      body = Buffer.concat(chunks);
-    }
-
-    const fetchReq = new Request(url.href, { method: req.method, headers, body });
-    const fetchRes = await app.fetch(fetchReq, process.env, { waitUntil: () => {} });
-
-    res.status(fetchRes.status);
-    fetchRes.headers.forEach((value, key) => res.append(key, value));
-    
-    if (fetchRes.body) {
-      for await (const chunk of fetchRes.body) res.write(chunk);
-    }
-    res.end();
-  } catch (error) {
-    console.error("SSR Error:", error);
-    res.status(500).send("Internal Server Error");
-  }
-});
-
-server.listen(3000, "0.0.0.0", () => console.log("Server listening on port 3000"));
-EOF
 
 # ── Stage 2: Production ───────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
@@ -71,13 +19,12 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Copy built output + node_modules needed at runtime
+# Copy built output + node_modules + adapter
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/start.js ./
 
-# The adapter listens on port 3000
 EXPOSE 3000
 
 CMD ["node", "start.js"]

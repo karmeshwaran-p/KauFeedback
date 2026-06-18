@@ -3,10 +3,8 @@ import app from "./dist/server/server.js";
 
 const server = express();
 
-// 1. Serve static files from the client build
 server.use(express.static("dist/client", { index: false }));
 
-// 2. Pass everything else to the TanStack Start SSR fetch handler
 server.use(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
@@ -40,4 +38,4 @@ server.use(async (req, res) => {
   }
 });
 
-server.listen(3000, "0.0.0.0", () => console.log("Server listening on port 3000"));
+server.listen(3001, "0.0.0.0", () => console.log("Server listening on port 3001"));
