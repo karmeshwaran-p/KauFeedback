@@ -73,6 +73,12 @@ Once the Docker Compose stack is up and running, you can access the services at:
 | **cAdvisor** | `http://localhost:8080` |
 | **Node Exporter** | `http://localhost:9100` |
 
+## 📊 Infrastructure Monitoring
+
+The project includes a pre-configured Grafana dashboard (`KauFeedback Infrastructure`) that provides real-time insights into system health, container resource utilization, and database connections.
+
+![Grafana Dashboard](./assets/grafana-dashboard.png)
+
 ## ⚙️ Development
 
 If you prefer to run the services natively for development:
