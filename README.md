@@ -77,7 +77,7 @@ Once the Docker Compose stack is up and running, you can access the services at:
 
 The project includes a pre-configured Grafana dashboard (`KauFeedback Infrastructure`) that provides real-time insights into system health, container resource utilization, and database connections.
 
-![Grafana Dashboard](./assets/grafana-dashboard.png)
+![Grafana Dashboard](./grafana_reference/grafana-dashboard.png)
 
 ## ⚙️ Development
 
